@@ -2,26 +2,28 @@ import { useState, useCallback } from 'react';
 import { unsealVault, listSecrets, getSecret, createSecret, rotateSecret } from './api';
 
 export default function App() {
-  const [masterKey, setMasterKey] = useState('');
+  const [masterKey, setMasterKey] = useState("");
   const [isUnlocked, setIsUnlocked] = useState(false);
-  const [keyInput, setKeyInput] = useState('');
+  const [keyInput, setKeyInput] = useState("");
   const [secrets, setSecrets] = useState([]);
   const [revealedValues, setRevealedValues] = useState({});
   const [showModal, setShowModal] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newValue, setNewValue] = useState('');
-  const [error, setError] = useState('');
+  const [newName, setNewName] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const clearError = () => setError('');
+  // Ensure master key is valid before enabling unlock button (64 hex characters)
+  const isValidKey =
+    keyInput.trim().length === 64 && /^[0-9a-fA-F]+$/.test(keyInput.trim());
 
-
+  const clearError = () => setError("");
 
   const handleLogin = useCallback(async () => {
     clearError();
     const key = keyInput.trim();
     if (key.length !== 64) {
-      setError('Master key must be exactly 64 hex characters (32 bytes).');
+      setError("Master key must be exactly 64 hex characters (32 bytes).");
       return;
     }
     setLoading(true);
@@ -38,18 +40,14 @@ export default function App() {
     }
   }, [keyInput]);
 
-
-
   const handleLogout = () => {
-    setMasterKey('');
+    setMasterKey("");
     setIsUnlocked(false);
-    setKeyInput('');
+    setKeyInput("");
     setSecrets([]);
     setRevealedValues({});
     clearError();
   };
-
-
 
   const refreshSecrets = useCallback(async () => {
     try {
@@ -60,55 +58,56 @@ export default function App() {
     }
   }, [masterKey]);
 
+  const handleReveal = useCallback(
+    async (id) => {
+      if (revealedValues[id]) {
+        setRevealedValues((prev) => {
+          const copy = { ...prev };
+          delete copy[id];
+          return copy;
+        });
+        return;
+      }
+      try {
+        const data = await getSecret(id, masterKey);
+        setRevealedValues((prev) => ({ ...prev, [id]: data.value }));
+      } catch (err) {
+        setError(err.message);
+      }
+    },
+    [masterKey, revealedValues],
+  );
 
-
-  const handleReveal = useCallback(async (id) => {
-    if (revealedValues[id]) {
-      setRevealedValues((prev) => {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
-      });
-      return;
-    }
-    try {
-      const data = await getSecret(id, masterKey);
-      setRevealedValues((prev) => ({ ...prev, [id]: data.value }));
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [masterKey, revealedValues]);
-
-
-
-  const handleRotate = useCallback(async (id) => {
-    if (!window.confirm('Are you sure you want to rotate this credential?')) return;
-    try {
-      await rotateSecret(id, masterKey);
-      setRevealedValues((prev) => {
-        const copy = { ...prev };
-        delete copy[id];
-        return copy;
-      });
-      alert('Rotation successful!');
-    } catch (err) {
-      setError(err.message);
-    }
-  }, [masterKey]);
-
-
+  const handleRotate = useCallback(
+    async (id) => {
+      if (!window.confirm("Are you sure you want to rotate this credential?"))
+        return;
+      try {
+        await rotateSecret(id, masterKey);
+        setRevealedValues((prev) => {
+          const copy = { ...prev };
+          delete copy[id];
+          return copy;
+        });
+        alert("Rotation successful!");
+      } catch (err) {
+        setError(err.message);
+      }
+    },
+    [masterKey],
+  );
 
   const handleCreate = useCallback(async () => {
     clearError();
     if (!newName.trim() || !newValue.trim()) {
-      setError('Name and value are required.');
+      setError("Name and value are required.");
       return;
     }
     setLoading(true);
     try {
       await createSecret(newName.trim(), newValue.trim(), masterKey);
-      setNewName('');
-      setNewValue('');
+      setNewName("");
+      setNewValue("");
       setShowModal(false);
       await refreshSecrets();
     } catch (err) {
@@ -118,8 +117,6 @@ export default function App() {
     }
   }, [newName, newValue, masterKey, refreshSecrets]);
 
-
-
   if (!isUnlocked) {
     return (
       <div className="app">
@@ -128,9 +125,7 @@ export default function App() {
             <div className="lock-icon">🔒</div>
             <h1>Credential Vault</h1>
             <p className="subtitle">Zero-Knowledge Architecture</p>
-
             {error && <div className="error-banner">{error}</div>}
-
             <div className="input-group">
               <label htmlFor="master-key-input">Master Key (64-char hex)</label>
               <input
@@ -139,15 +134,23 @@ export default function App() {
                 placeholder="Enter your 32-byte hex master key..."
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
+                onKeyDown={(e) => e.key === "Enter" && handleLogin()}
               />
               <small className="hint">
-                Demo key: <code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code>
+                Demo key:{" "}
+                <code>
+                  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+                </code>
               </small>
             </div>
 
-            <button id="login-btn" className="btn btn-primary full-width" onClick={handleLogin} disabled={loading}>
-              {loading ? 'Unlocking...' : 'Unlock Vault'}
+            <button
+              id="login-btn"
+              className="btn btn-primary full-width"
+              onClick={handleLogin}
+              disabled={loading || !isValidKey}
+            >
+              {loading ? "Unlocking..." : "Unlock Vault"}
             </button>
           </div>
         </div>
@@ -159,20 +162,42 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="logo">🔐 Credential Vault</div>
-        <button id="logout-btn" className="btn btn-ghost" onClick={handleLogout}>Lock Vault</button>
+        <button
+          id="logout-btn"
+          className="btn btn-ghost"
+          onClick={handleLogout}
+        >
+          Lock Vault
+        </button>
       </header>
 
       <main className="dashboard">
-        {error && <div className="error-banner">{error}<button className="dismiss" onClick={clearError}>✕</button></div>}
+        {error && (
+          <div className="error-banner">
+            {error}
+            <button className="dismiss" onClick={clearError}>
+              ✕
+            </button>
+          </div>
+        )}
 
         <div className="actions-bar">
           <h2>Stored Secrets</h2>
-          <button id="add-secret-btn" className="btn btn-primary" onClick={() => setShowModal(true)}>+ New Secret</button>
+          <button
+            id="add-secret-btn"
+            className="btn btn-primary"
+            onClick={() => setShowModal(true)}
+          >
+            + New Secret
+          </button>
         </div>
 
         {secrets.length === 0 ? (
           <div className="empty-state">
-            <p>No secrets stored yet. Click <strong>+ New Secret</strong> to add one.</p>
+            <p>
+              No secrets stored yet. Click <strong>+ New Secret</strong> to add
+              one.
+            </p>
           </div>
         ) : (
           <div className="secrets-list">
@@ -182,14 +207,22 @@ export default function App() {
                   <h3>{secret.name}</h3>
                   <span className="secret-id">ID: {secret._id}</span>
                   {revealedValues[secret._id] && (
-                    <div className="secret-value">{revealedValues[secret._id]}</div>
+                    <div className="secret-value">
+                      {revealedValues[secret._id]}
+                    </div>
                   )}
                 </div>
                 <div className="secret-actions">
-                  <button className="btn btn-outline" onClick={() => handleReveal(secret._id)}>
-                    {revealedValues[secret._id] ? 'Hide' : 'Reveal'}
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => handleReveal(secret._id)}
+                  >
+                    {revealedValues[secret._id] ? "Hide" : "Reveal"}
                   </button>
-                  <button className="btn btn-outline" onClick={() => handleRotate(secret._id)}>
+                  <button
+                    className="btn btn-outline"
+                    onClick={() => handleRotate(secret._id)}
+                  >
                     Rotate
                   </button>
                 </div>
@@ -198,8 +231,6 @@ export default function App() {
           </div>
         )}
       </main>
-
-
 
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
@@ -223,13 +254,24 @@ export default function App() {
                 placeholder="Secret value..."
                 value={newValue}
                 onChange={(e) => setNewValue(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
+                onKeyDown={(e) => e.key === "Enter" && handleCreate()}
               />
             </div>
             <div className="modal-actions">
-              <button id="cancel-create-btn" className="btn btn-outline" onClick={() => setShowModal(false)}>Cancel</button>
-              <button id="save-secret-btn" className="btn btn-primary" onClick={handleCreate} disabled={loading}>
-                {loading ? 'Saving...' : 'Encrypt & Save'}
+              <button
+                id="cancel-create-btn"
+                className="btn btn-outline"
+                onClick={() => setShowModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                id="save-secret-btn"
+                className="btn btn-primary"
+                onClick={handleCreate}
+                disabled={loading}
+              >
+                {loading ? "Saving..." : "Encrypt & Save"}
               </button>
             </div>
           </div>
