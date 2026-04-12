@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const Secret = require('../models/Secret');
 const { encrypt, decrypt } = require('../services/encryption');
+const { logEvent } = require('./audit');
 
 const fs = require('fs');
 const path = require('path');
@@ -56,6 +57,7 @@ router.post('/', requireMasterKey, authorize('create:secret'), async (req, res) 
         });
 
         await secret.save();
+        logEvent('Secret Created', secret.name, 'SUCCESS', 'New credential stored in vault');
         res.status(201).json({ id: secret._id, name: secret.name });
     } catch (error) {
         console.error(error);
@@ -141,8 +143,10 @@ router.post('/rotate/:id', requireMasterKey, authorize('rotate:secret'), async (
             secret.encryptedData = encryptResult.encryptedData;
             secret.iv = encryptResult.iv;
             secret.authTag = encryptResult.authTag;
+            secret.lastRotated = new Date();
 
             await secret.save();
+            logEvent('Secret Rotated', secret.name, 'SUCCESS', `Manual rotation via ${type || 'credential'} script`);
 
             res.json({ message: `Secret ${type || 'credential'} rotated successfully`, id: secret._id });
         });

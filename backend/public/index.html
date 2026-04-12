@@ -1,69 +1,17 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Credential Vault – A zero-knowledge secrets management system with AES-256-GCM encryption." />
     <title>Credential Vault | Zero-Knowledge Storage</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-</head>
-<body>
-    <div class="app-container">
-        <!-- Login View -->
-        <section id="login-view" class="view active">
-            <div class="glass-panel login-panel">
-                <h1>Credential Vault</h1>
-                <p class="subtitle">Zero-Knowledge Architecture</p>
-                <div class="input-group">
-                    <label for="master-key-input">Enter Master Key (Hex)</label>
-                    <input type="password" id="master-key-input" placeholder="32-byte hex key..." autocomplet="off">
-                    <small>For demo, use 64 'a's: <code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code></small>
-                </div>
-                <button id="login-btn" class="btn primary">Unlock Vault</button>
-            </div>
-        </section>
-
-        <!-- Dashboard View -->
-        <section id="dashboard-view" class="view hidden">
-            <header>
-                <div class="logo">Credential Vault</div>
-                <button id="logout-btn" class="btn text">Lock Vault</button>
-            </header>
-            
-            <main>
-                <div class="actions-bar">
-                    <h2>Stored Secrets</h2>
-                    <button id="add-secret-btn" class="btn primary">+ New Secret</button>
-                </div>
-
-                <div id="secrets-list" class="grid-list">
-                    <!-- Secrets injected here -->
-                </div>
-            </main>
-        </section>
-
-        <!-- Create Secret Modal -->
-        <div id="create-modal" class="modal hidden">
-            <div class="modal-content glass-panel">
-                <h3>Store New Secret</h3>
-                <div class="input-group">
-                    <label>Name</label>
-                    <input type="text" id="new-secret-name" placeholder="e.g., db-prod-password">
-                </div>
-                <div class="input-group">
-                    <label>Value</label>
-                    <input type="password" id="new-secret-value" placeholder="Secret value...">
-                </div>
-                <div class="modal-actions">
-                    <button id="cancel-create-btn" class="btn secondary">Cancel</button>
-                    <button id="save-secret-btn" class="btn primary">Encrypt & Save</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="app.js"></script>
-</body>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+    <script type="module" crossorigin src="/assets/index-BLAU0Gma.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-WAD28J_O.css">
+  </head>
+  <body>
+    <div id="root"></div>
+  </body>
 </html>

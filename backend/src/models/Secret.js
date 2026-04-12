@@ -21,6 +21,10 @@ const secretSchema = new mongoose.Schema({
     createdAt: {
         type: Date,
         default: Date.now
+    },
+    lastRotated: {
+        type: Date,
+        default: Date.now
     }
 });
 

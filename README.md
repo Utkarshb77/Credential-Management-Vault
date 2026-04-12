@@ -43,8 +43,33 @@ curl -X POST http://localhost:3000/secrets/rotate/SECRET_ID \
      -H "x-role: admin"
 ```
 
-## Security
-Run the hardening script to secure the environment:
+## Deployment (Render)
+
+This project is configured for easy deployment on [Render](https://render.com).
+
+1.  **Create a New Web Service** on Render.
+2.  **Connect your Repository**.
+3.  **Configure build settings**:
+    -   **Runtime**: Node
+    -   **Build Command**: `npm run render-build`
+    -   **Start Command**: `npm start`
+4.  **Add Environment Variables**:
+    -   `MONGODB_URI`: Your MongoDB Atlas connection string.
+    -   `PORT`: `3000` (optional).
+
+The backend automatically serves the production build of the frontend from the `frontend/dist` directory.
+
+## Local Development
+
+### 1. Install Dependencies
+Run from the root directory:
 ```bash
-./scripts/harden_security.sh
+npm run install:all
 ```
+
+### 2. Configure Environment
+Create a `.env` file in the `backend/` directory based on `.env.example`.
+
+### 3. Start Development Servers
+- **Backend**: `npm start --prefix backend`
+- **Frontend**: `npm run dev --prefix frontend`

@@ -2,6 +2,7 @@ const { exec } = require('child_process');
 const path = require('path');
 const Secret = require('../models/Secret');
 const { encrypt } = require('./encryption');
+const { logEvent } = require('../routes/audit');
 
 /**
  * Rotates a secret by executing its associated script and updating the database.
@@ -18,6 +19,7 @@ async function rotateSecret(secretId, scriptName, masterKey) {
 
         exec(scriptPath, async (error, stdout, stderr) => {
             if (error) {
+                logEvent('Auto-Rotation', secret.name, 'FAILURE', `Script ${scriptName} failed: ${error.message}`);
                 return console.error(`Rotation error for ${secret.name}: ${error}`);
             }
 
@@ -31,6 +33,7 @@ async function rotateSecret(secretId, scriptName, masterKey) {
             secret.authTag = authTag;
             await secret.save();
 
+            logEvent('Auto-Rotation', secret.name, 'SUCCESS', `Automated scheduled rotation via ${scriptName}`);
             console.log(`Successfully rotated secret: ${secret.name}`);
         });
     } catch (err) {

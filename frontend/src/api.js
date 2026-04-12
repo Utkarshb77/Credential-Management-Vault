@@ -48,3 +48,12 @@ export async function createSecret(name, value, masterKey) {
 export async function rotateSecret(id, masterKey) {
   return apiRequest(`/secrets/rotate/${id}`, masterKey, 'POST');
 }
+
+export async function getAuditLogs(masterKey) {
+  return apiRequest('/audit', masterKey);
+}
+
+export async function sealVault() {
+  const response = await fetch('/seal', { method: 'POST' });
+  return response.json();
+}
