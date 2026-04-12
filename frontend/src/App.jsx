@@ -41,6 +41,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [copyStatus, setCopyStatus] = useState({});
 
+  // Ensure master key is valid before enabling unlock button (64 hex characters)
+  const isValidKey = keyInput.trim().length === 64 && /^[0-9a-fA-F]+$/.test(keyInput.trim());
+
   const clearError = () => setError('');
 
   const handleLogin = useCallback(async () => {
@@ -204,7 +207,7 @@ export default function App() {
             </div>
           </div>
 
-          <button className="btn btn-primary full-width" onClick={handleLogin} disabled={loading} style={{height: '56px', marginTop: '1rem'}}>
+          <button className="btn btn-primary full-width" onClick={handleLogin} disabled={loading || !isValidKey} style={{height: '56px', marginTop: '1rem'}}>
             {loading ? <RefreshCw className="animate-spin" size={20} /> : <Unlock size={20} />}
             <span>{loading ? 'INITIALIZING...' : 'UNSEAL VAULT'}</span>
           </button>
