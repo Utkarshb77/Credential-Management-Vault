@@ -9,8 +9,11 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/auth': 'http://localhost:3000',
       '/unseal': 'http://localhost:3000',
+      '/seal': 'http://localhost:3000',
       '/secrets': 'http://localhost:3000',
+      '/audit': 'http://localhost:3000',
     },
   },
 })

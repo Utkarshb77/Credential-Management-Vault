@@ -1,0 +1,8 @@
+{
+    "role": "user",
+    "permissions": [
+        "create:secret",
+        "read:secret",
+        "rotate:secret"
+    ]
+}

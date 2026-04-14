@@ -1,16 +1,22 @@
 const express = require('express');
-const router = express.Router();
+const { execFile } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 const Secret = require('../models/Secret');
 const { encrypt, decrypt } = require('../services/encryption');
 const { logEvent } = require('./audit');
 
-const fs = require('fs');
-const path = require('path');
+const router = express.Router();
+const ROTATION_SCRIPT_MAP = {
+    db_password: 'rotate_db_password.sh',
+    api_key: 'rotate_api_key.sh',
+    certificate: 'rotate_certificate.sh'
+};
 
 // Middleware to check for Master Key
 const requireMasterKey = (req, res, next) => {
     const masterKey = req.headers['x-master-key'];
-    if (!masterKey || masterKey.length !== 64) {
+    if (!masterKey || masterKey.length !== 64 || !/^[0-9a-fA-F]+$/.test(masterKey)) {
         return res.status(401).json({ error: 'Valid Master Key (32-byte hex) required' });
     }
     req.masterKey = masterKey;
@@ -20,11 +26,12 @@ const requireMasterKey = (req, res, next) => {
 // Middleware for RBAC Policy Enforcement
 const authorize = (permission) => {
     return (req, res, next) => {
-        const role = req.headers['x-role'] || 'readonly';
-        const policyPath = path.join(__dirname, `../../policies/${role}.json`);
+        const userRole = req.user?.role || 'user';
+        const policyRole = userRole === 'admin' ? 'admin' : 'user';
+        const policyPath = path.join(__dirname, `../../policies/${policyRole}.json`);
 
         if (!fs.existsSync(policyPath)) {
-            return res.status(403).json({ error: `Policy for role '${role}' not found` });
+            return res.status(403).json({ error: `Policy for role '${policyRole}' not found` });
         }
 
         try {
@@ -32,33 +39,45 @@ const authorize = (permission) => {
             if (policy.permissions.includes(permission)) {
                 return next();
             }
-            res.status(403).json({ error: `Permission '${permission}' denied for role '${role}'` });
+            res.status(403).json({ error: `Permission '${permission}' denied for role '${userRole}'` });
         } catch (error) {
             res.status(500).json({ error: 'Failed to parse policy' });
         }
     };
 };
 
+const buildSecretQuery = (req, secretId) => {
+    if (req.user?.role === 'admin') {
+        return { _id: secretId };
+    }
+    return { _id: secretId, owner: req.user.userId };
+};
+
 // Create a Secret
 router.post('/', requireMasterKey, authorize('create:secret'), async (req, res) => {
     try {
-        const { name, value } = req.body;
+        const { name, value, rotationType = 'db_password' } = req.body;
         if (!name || !value) {
             return res.status(400).json({ error: 'Name and value are required' });
+        }
+        if (!ROTATION_SCRIPT_MAP[rotationType]) {
+            return res.status(400).json({ error: 'Invalid rotation type' });
         }
 
         const { iv, encryptedData, authTag } = encrypt(value, req.masterKey);
 
         const secret = new Secret({
+            owner: req.user.userId,
             name,
             encryptedData,
             iv,
-            authTag
+            authTag,
+            rotationType
         });
 
         await secret.save();
         logEvent('Secret Created', secret.name, 'SUCCESS', 'New credential stored in vault');
-        res.status(201).json({ id: secret._id, name: secret.name });
+        res.status(201).json({ id: secret._id, name: secret.name, rotationType: secret.rotationType });
     } catch (error) {
         console.error(error);
         res.status(500).json({ error: 'Failed to create secret' });
@@ -68,7 +87,8 @@ router.post('/', requireMasterKey, authorize('create:secret'), async (req, res) 
 // List Secrets (Metadata only)
 router.get('/', requireMasterKey, authorize('read:secret'), async (req, res) => {
     try {
-        const secrets = await Secret.find({}, 'name createdAt'); // Only return metadata
+        const query = req.user?.role === 'admin' ? {} : { owner: req.user.userId };
+        const secrets = await Secret.find(query, 'name createdAt rotationType owner').sort({ createdAt: -1 });
         res.json(secrets);
     } catch (error) {
         console.error(error);
@@ -79,7 +99,7 @@ router.get('/', requireMasterKey, authorize('read:secret'), async (req, res) => 
 // Get a Secret (Decrypted)
 router.get('/:id', requireMasterKey, authorize('read:secret'), async (req, res) => {
     try {
-        const secret = await Secret.findById(req.params.id);
+        const secret = await Secret.findOne(buildSecretQuery(req, req.params.id));
         if (!secret) {
             return res.status(404).json({ error: 'Secret not found' });
         }
@@ -95,7 +115,8 @@ router.get('/:id', requireMasterKey, authorize('read:secret'), async (req, res) 
                 id: secret._id,
                 name: secret.name,
                 value: decryptedValue,
-                createdAt: secret.createdAt
+                createdAt: secret.createdAt,
+                rotationType: secret.rotationType
             });
         } catch (decryptionError) {
             res.status(403).json({ error: 'Failed to decrypt secret. Wrong Key?' });
@@ -106,26 +127,24 @@ router.get('/:id', requireMasterKey, authorize('read:secret'), async (req, res) 
     }
 });
 
-const { exec } = require('child_process');
-
 // Rotate a Secret
 router.post('/rotate/:id', requireMasterKey, authorize('rotate:secret'), async (req, res) => {
     try {
-        const secret = await Secret.findById(req.params.id);
+        const secret = await Secret.findOne(buildSecretQuery(req, req.params.id));
         if (!secret) {
             return res.status(404).json({ error: 'Secret not found' });
         }
 
-        // Determine which script to run (default to db rotation if not specified)
-        const { type } = req.body;
-        let scriptName = 'rotate_db_password.sh';
-        if (type === 'api_key') scriptName = 'rotate_api_key.sh';
-        if (type === 'certificate') scriptName = 'rotate_certificate.sh';
-
+        const requestedType = req.body?.type;
+        const rotationType = requestedType || secret.rotationType || 'db_password';
+        if (!ROTATION_SCRIPT_MAP[rotationType]) {
+            return res.status(400).json({ error: 'Invalid rotation type' });
+        }
+        const scriptName = ROTATION_SCRIPT_MAP[rotationType];
         const scriptPath = path.join(__dirname, `../../scripts/${scriptName}`);
 
         // Execute rotation script
-        exec(scriptPath, async (error, stdout, stderr) => {
+        execFile(scriptPath, [], async (error, stdout, stderr) => {
             if (error) {
                 console.error(`Rotation exec error: ${error}`);
                 return res.status(500).json({ error: 'Rotation script failed', details: stderr });
@@ -143,12 +162,13 @@ router.post('/rotate/:id', requireMasterKey, authorize('rotate:secret'), async (
             secret.encryptedData = encryptResult.encryptedData;
             secret.iv = encryptResult.iv;
             secret.authTag = encryptResult.authTag;
+            secret.rotationType = rotationType;
             secret.lastRotated = new Date();
 
             await secret.save();
-            logEvent('Secret Rotated', secret.name, 'SUCCESS', `Manual rotation via ${type || 'credential'} script`);
+            logEvent('Secret Rotated', secret.name, 'SUCCESS', `Manual rotation via ${rotationType} script`);
 
-            res.json({ message: `Secret ${type || 'credential'} rotated successfully`, id: secret._id });
+            res.json({ message: `Secret ${rotationType} rotated successfully`, id: secret._id, rotationType });
         });
     } catch (error) {
         console.error(error);

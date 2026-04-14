@@ -8,7 +8,6 @@ import {
   EyeOff, 
   RefreshCw, 
   LogOut, 
-  AlertCircle,
   Key,
   ShieldCheck,
   Search,
@@ -21,12 +20,21 @@ import {
   ShieldAlert,
   Terminal,
   History,
-  Info,
   Zap
 } from 'lucide-react';
-import { unsealVault, listSecrets, getSecret, createSecret, rotateSecret, getAuditLogs, sealVault } from './api';
+import { unsealVault, listSecrets, getSecret, createSecret, rotateSecret, getAuditLogs, sealVault, signup, login, setAuthToken } from './api';
 
 export default function App() {
+  const [authMode, setAuthMode] = useState('login');
+  const [authToken, setAuthTokenState] = useState(localStorage.getItem('vault_auth_token') || '');
+  const [authUser, setAuthUser] = useState(() => {
+    const raw = localStorage.getItem('vault_auth_user');
+    return raw ? JSON.parse(raw) : null;
+  });
+  const [usernameInput, setUsernameInput] = useState('');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [requiresMasterKeySetup, setRequiresMasterKeySetup] = useState(false);
   const [masterKey, setMasterKey] = useState('');
   const [isUnlocked, setIsUnlocked] = useState(false);
   const [keyInput, setKeyInput] = useState('');
@@ -36,15 +44,47 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [newValue, setNewValue] = useState('');
+  const [newRotationType, setNewRotationType] = useState('db_password');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [copyStatus, setCopyStatus] = useState({});
+  const userRole = authUser?.role || 'user';
+  const isAdmin = userRole === 'admin';
+  useEffect(() => {
+    setAuthToken(authToken);
+  }, [authToken]);
 
   // Ensure master key is valid before enabling unlock button (64 hex characters)
   const isValidKey = keyInput.trim().length === 64 && /^[0-9a-fA-F]+$/.test(keyInput.trim());
 
   const clearError = () => setError('');
+
+  const handleAuth = useCallback(async () => {
+    clearError();
+    if (!emailInput.trim() || !passwordInput.trim() || (authMode === 'signup' && !usernameInput.trim())) {
+      setError('Please fill all required fields.');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const result = authMode === 'signup'
+        ? await signup(usernameInput.trim(), emailInput.trim(), passwordInput)
+        : await login(emailInput.trim(), passwordInput);
+
+      setAuthTokenState(result.token);
+      setAuthUser(result.user);
+      setRequiresMasterKeySetup(Boolean(result.requiresMasterKeySetup));
+      localStorage.setItem('vault_auth_token', result.token);
+      localStorage.setItem('vault_auth_user', JSON.stringify(result.user));
+      setPasswordInput('');
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [authMode, emailInput, passwordInput, usernameInput]);
 
   const handleLogin = useCallback(async () => {
     clearError();
@@ -58,6 +98,7 @@ export default function App() {
       await unsealVault(key);
       setMasterKey(key);
       setIsUnlocked(true);
+      setRequiresMasterKeySetup(false);
       const data = await listSecrets(key);
       setSecrets(Array.isArray(data) ? data : []);
       const logs = await getAuditLogs(key);
@@ -73,18 +114,31 @@ export default function App() {
     setMasterKey('');
     setIsUnlocked(false);
     setKeyInput('');
+    setAuthTokenState('');
+    setAuthUser(null);
+    setRequiresMasterKeySetup(false);
+    localStorage.removeItem('vault_auth_token');
+    localStorage.removeItem('vault_auth_user');
     setSecrets([]);
     setAuditLogs([]);
     setRevealedValues({});
+    setEmailInput('');
+    setUsernameInput('');
+    setPasswordInput('');
+    setNewRotationType('db_password');
     clearError();
   };
 
   const handlePanic = async () => {
+    if (!isAdmin) {
+      setError('Only admin can seal the vault.');
+      return;
+    }
     if (!window.confirm('EMERGENCY: Are you sure you want to seal the vault? This will wipe the master key from server memory.')) return;
     try {
       await sealVault();
       handleLogout();
-    } catch (err) {
+    } catch {
       setError('Panic button failed to contact server. Please verify network.');
     }
   };
@@ -125,10 +179,10 @@ export default function App() {
     }, 2000);
   }, []);
 
-  const handleRotate = useCallback(async (id) => {
+  const handleRotate = useCallback(async (id, type) => {
     if (!window.confirm('Are you sure you want to rotate this credential?')) return;
     try {
-      await rotateSecret(id, masterKey);
+      await rotateSecret(id, masterKey, type || 'db_password');
       setRevealedValues((prev) => {
         const copy = { ...prev };
         delete copy[id];
@@ -148,9 +202,10 @@ export default function App() {
     }
     setLoading(true);
     try {
-      await createSecret(newName.trim(), newValue.trim(), masterKey);
+      await createSecret(newName.trim(), newValue.trim(), masterKey, newRotationType);
       setNewName('');
       setNewValue('');
+      setNewRotationType('db_password');
       setShowModal(false);
       await refreshSecrets();
     } catch (err) {
@@ -158,7 +213,7 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [newName, newValue, masterKey, refreshSecrets]);
+  }, [newName, newValue, masterKey, newRotationType, refreshSecrets]);
 
   const filteredSecrets = secrets.filter(s => 
     s.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -170,6 +225,85 @@ export default function App() {
     health: '100%',
   };
 
+  if (!authToken) {
+    return (
+      <div className="login-container">
+        <div className="login-card glass">
+          <div className="lock-icon">
+            <Shield size={36} color="white" />
+          </div>
+          <h1>{authMode === 'signup' ? 'Create Account' : 'User Login'}</h1>
+          <p className="subtitle">Authenticate to access Credential Vault</p>
+
+          {error && (
+            <div className="error-banner glass-panel" style={{marginBottom: '2rem', borderLeft: '4px solid var(--danger)'}}>
+              <div style={{display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '1rem'}}>
+                <ShieldAlert size={18} style={{color: 'var(--danger)'}} />
+                <span>{error}</span>
+              </div>
+              <button className="dismiss" onClick={clearError} style={{background: 'none', border: 'none', color: 'white', cursor: 'pointer', padding: '1rem'}}>✕</button>
+            </div>
+          )}
+
+          {authMode === 'signup' && (
+            <>
+              <div className="input-group">
+                <label>USERNAME</label>
+                <div className="input-wrapper">
+                  <input
+                    type="text"
+                    placeholder="Enter username"
+                    value={usernameInput}
+                    onChange={(e) => setUsernameInput(e.target.value)}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+          <div className="input-group">
+            <label>EMAIL</label>
+            <div className="input-wrapper">
+              <input
+                type="email"
+                placeholder="name@example.com"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="input-group">
+            <label>PASSWORD</label>
+            <div className="input-wrapper">
+              <input
+                type="password"
+                placeholder="Enter password"
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleAuth()}
+              />
+            </div>
+          </div>
+
+          <button className="btn btn-primary full-width" onClick={handleAuth} disabled={loading} style={{height: '56px', marginTop: '1rem'}}>
+            {loading ? <RefreshCw className="animate-spin" size={20} /> : <Unlock size={20} />}
+            <span>{loading ? 'PROCESSING...' : authMode === 'signup' ? 'SIGN UP' : 'LOGIN'}</span>
+          </button>
+          <button
+            className="btn btn-outline"
+            type="button"
+            onClick={() => {
+              clearError();
+              setAuthMode(authMode === 'signup' ? 'login' : 'signup');
+            }}
+            style={{width: '100%', marginTop: '0.8rem', height: '50px'}}
+          >
+            {authMode === 'signup' ? 'Already have an account? Login' : 'New user? Create account'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!isUnlocked) {
     return (
       <div className="login-container">
@@ -177,8 +311,12 @@ export default function App() {
           <div className="lock-icon">
             <Lock size={36} color="white" />
           </div>
-          <h1>Vault Unseal</h1>
-          <p className="subtitle">Secure, Zero-Knowledge Credential Infrastructure</p>
+          <h1>{requiresMasterKeySetup ? 'Create Master Key' : 'Vault Unseal'}</h1>
+          <p className="subtitle">
+            {requiresMasterKeySetup
+              ? `Welcome ${authUser?.username || 'User'} · Create your master key to start storing secrets`
+              : `Welcome ${authUser?.username || 'User'} · Secure, Zero-Knowledge Credential Infrastructure`}
+          </p>
 
           {error && (
             <div className="error-banner glass-panel" style={{marginBottom: '2rem', borderLeft: '4px solid var(--danger)'}}>
@@ -191,25 +329,29 @@ export default function App() {
           )}
 
           <div className="input-group">
-            <label>MASTER AUTHENTICATION KEY</label>
+            <label>{requiresMasterKeySetup ? 'NEW MASTER KEY' : 'MASTER AUTHENTICATION KEY'}</label>
             <div className="input-wrapper">
               <input
                 type="password"
-                placeholder="Paste your 64-char hex key..."
+                placeholder={requiresMasterKeySetup ? 'Create a new 64-char hex key...' : 'Paste your 64-char hex key...'}
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
               />
             </div>
             <div className="hint">
-              <small style={{display: 'block', marginBottom: '0.5rem', opacity: 0.6}}>SYSTEM REQUIREMENT: AES-256 CONFORMANT KEY</small>
+              <small style={{display: 'block', marginBottom: '0.5rem', opacity: 0.6}}>
+                {requiresMasterKeySetup
+                  ? 'FIRST LOGIN: THIS KEY WILL BE REQUIRED TO DECRYPT YOUR SECRETS'
+                  : 'SYSTEM REQUIREMENT: AES-256 CONFORMANT KEY'}
+              </small>
               <code>aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa</code>
             </div>
           </div>
 
           <button className="btn btn-primary full-width" onClick={handleLogin} disabled={loading || !isValidKey} style={{height: '56px', marginTop: '1rem'}}>
             {loading ? <RefreshCw className="animate-spin" size={20} /> : <Unlock size={20} />}
-            <span>{loading ? 'INITIALIZING...' : 'UNSEAL VAULT'}</span>
+            <span>{loading ? 'INITIALIZING...' : requiresMasterKeySetup ? 'CREATE & UNSEAL' : 'UNSEAL VAULT'}</span>
           </button>
         </div>
       </div>
@@ -232,7 +374,7 @@ export default function App() {
             <LogOut size={16} />
             <span>Sec-Lock</span>
           </button>
-          <button className="btn btn-danger panic-btn" onClick={handlePanic} style={{padding: '0.5rem 1rem', background: 'var(--danger)', color: 'white'}}>
+          <button className="btn btn-danger panic-btn" onClick={handlePanic} disabled={!isAdmin} style={{padding: '0.5rem 1rem', background: 'var(--danger)', color: 'white', opacity: isAdmin ? 1 : 0.5, cursor: isAdmin ? 'pointer' : 'not-allowed'}}>
             <Zap size={16} />
             <span>PANIC</span>
           </button>
@@ -266,7 +408,7 @@ export default function App() {
               </div>
               <div className="stat-content">
                 <p className="stat-label">ACTIVE POLICIES</p>
-                <h4 className="stat-value" style={{fontSize: '1.2rem'}}>Admin:Global</h4>
+                <h4 className="stat-value" style={{fontSize: '1.2rem'}}>{isAdmin ? 'Admin:Global' : 'User:Owned Secrets'}</h4>
               </div>
             </div>
           </div>
@@ -313,6 +455,9 @@ export default function App() {
                       <h3>{secret.name}</h3>
                       <div style={{display: 'flex', gap: '1rem', alignItems: 'center'}}>
                         <span className="secret-id">ID: {secret._id.slice(-8)}</span>
+                        <span style={{fontSize: '0.7rem', letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--text-muted)'}}>
+                          {secret.rotationType || 'db_password'}
+                        </span>
                         <span style={{display: 'flex', alignItems: 'center', gap: '0.4rem', fontSize: '0.75rem', color: 'var(--text-muted)'}}>
                           <Clock size={12} />
                           {new Date(secret.createdAt).toLocaleDateString()}
@@ -333,7 +478,7 @@ export default function App() {
                       {revealedValues[secret._id] ? <EyeOff size={16} /> : <Eye size={16} />}
                       <span>{revealedValues[secret._id] ? 'Hide' : 'Reveal'}</span>
                     </button>
-                    <button className="btn btn-outline" onClick={() => handleRotate(secret._id)} style={{padding: '0.5rem 1rem'}}>
+                    <button className="btn btn-outline" onClick={() => handleRotate(secret._id, secret.rotationType)} style={{padding: '0.5rem 1rem'}}>
                       <RefreshCw size={16} />
                       <span>Rotate</span>
                     </button>
@@ -406,6 +551,20 @@ export default function App() {
                   onChange={(e) => setNewValue(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                 />
+              </div>
+            </div>
+            <div className="input-group">
+              <label>ROTATION TYPE</label>
+              <div className="input-wrapper">
+                <select
+                  value={newRotationType}
+                  onChange={(e) => setNewRotationType(e.target.value)}
+                  style={{height: '52px', width: '100%', background: 'transparent', border: 'none', color: 'white', padding: '0 1rem'}}
+                >
+                  <option value="db_password" style={{color: '#111'}}>Database Password</option>
+                  <option value="api_key" style={{color: '#111'}}>API Key</option>
+                  <option value="certificate" style={{color: '#111'}}>Certificate</option>
+                </select>
               </div>
             </div>
             <div className="modal-actions" style={{display: 'flex', gap: '1rem', marginTop: '2.5rem'}}>
