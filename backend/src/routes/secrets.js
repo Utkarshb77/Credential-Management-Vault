@@ -7,11 +7,6 @@ const { encrypt, decrypt } = require('../services/encryption');
 const { logEvent } = require('./audit');
 
 const router = express.Router();
-const ROTATION_SCRIPT_MAP = {
-    db_password: 'rotate_db_password.sh',
-    api_key: 'rotate_api_key.sh',
-    certificate: 'rotate_certificate.sh'
-};
 
 // Middleware to check for Master Key
 const requireMasterKey = (req, res, next) => {
@@ -22,7 +17,11 @@ const requireMasterKey = (req, res, next) => {
     req.masterKey = masterKey;
     next();
 };
-
+const ROTATION_SCRIPT_MAP = {
+    db_password: 'rotate_db_password.sh',
+    api_key: 'rotate_api_key.sh',
+    certificate: 'rotate_certificate.sh'
+};
 // Middleware for RBAC Policy Enforcement
 const authorize = (permission) => {
     return (req, res, next) => {
@@ -44,13 +43,6 @@ const authorize = (permission) => {
             res.status(500).json({ error: 'Failed to parse policy' });
         }
     };
-};
-
-const buildSecretQuery = (req, secretId) => {
-    if (req.user?.role === 'admin') {
-        return { _id: secretId };
-    }
-    return { _id: secretId, owner: req.user.userId };
 };
 
 // Create a Secret
@@ -84,6 +76,12 @@ router.post('/', requireMasterKey, authorize('create:secret'), async (req, res) 
     }
 });
 
+const buildSecretQuery = (req, secretId) => {
+    if (req.user?.role === 'admin') {
+        return { _id: secretId };
+    }
+    return { _id: secretId, owner: req.user.userId };
+};
 // List Secrets (Metadata only)
 router.get('/', requireMasterKey, authorize('read:secret'), async (req, res) => {
     try {
