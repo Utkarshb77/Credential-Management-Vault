@@ -216,7 +216,6 @@ A secure, full-stack credential vault inspired by **[HashiCorp Vault](https://ww
 ---
 
 ## 📂 Project Structure
-
 ```
 credential-vault/
 ├── 📄 package.json              # Monorepo scripts
