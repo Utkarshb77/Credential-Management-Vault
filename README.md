@@ -299,7 +299,6 @@ JWT_SECRET=your-strong-random-secret-here
 # Terminal 1 — Start the backend
 npm start --prefix backend
 # → Server running on http://localhost:3000
-
 # Terminal 2 — Start the frontend dev server
 npm run dev --prefix frontend
 # → Vite running on http://localhost:5173 (auto-proxies API calls)
