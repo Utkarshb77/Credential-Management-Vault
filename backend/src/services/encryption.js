@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 
 const ALGORITHM = 'aes-256-gcm';
-const IV_LENGTH = 12; // 12 bytes for GCM
+
 
 /**
  * Encrypts a text using AES-256-GCM.
@@ -45,3 +45,4 @@ function decrypt(encryptedObject, masterKeyHex) {
 }
 
 module.exports = { encrypt, decrypt };
+const IV_LENGTH = 12; // 12 bytes for GCM
